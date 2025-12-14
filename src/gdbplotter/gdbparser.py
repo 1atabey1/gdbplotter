@@ -211,7 +211,7 @@ class GdbParser:
             if self.rx_t:
                 self.rx_t.join()
 
-        if self.gdb_socket:
+        # if self.gdb_socket:
             try:
                 self.gdb_socket.close()
             except Exception as e:
