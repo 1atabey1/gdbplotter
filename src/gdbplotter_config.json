@@ -1,0 +1,12 @@
+{
+  "regions": [
+    {
+      "address": 140737488346780,
+      "format_str": "I",
+      "name": "test"
+    }
+  ],
+  "signal_names": {},
+  "gdb_port": "50000",
+  "gdb_host": "localhost"
+}
