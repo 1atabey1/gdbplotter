@@ -29,7 +29,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install uv
         uv sync --frozen
-    - name: Lint with flake8
+    - name: Lint with pre-commit config
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        uv run pre-commit run --from-ref origin/main --to-ref HEAD
+        uv run pre-commit run --all-files

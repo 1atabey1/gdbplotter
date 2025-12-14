@@ -3,6 +3,7 @@
 Lightweight Python tool that connects to a running gdb server and visualises data from given memory addresses. Be aware that this only really makes sense on target architectures that allow reading the memory while the target is running (e.g. "Cortex Live Watch"). Tested with various STM32 processors and regular STLinks.
 
 ## Features
+
 - Communicate with a GDB server and read out specific memory regions
 - Specify decoding rules for each region
 - Simple plotting UI for quick inspection of numeric traces
@@ -30,6 +31,7 @@ gdbplotter
 ```
 
 - Run as python module (if previous method doesnt work)
+
 ```
 python -m gdbplotter
 ```
@@ -38,6 +40,7 @@ python -m gdbplotter
 
 ```py
 from gdbplotter import gdbparser
+
 # parse gdb output and plot
 ```
 
