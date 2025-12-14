@@ -9,6 +9,12 @@ Lightweight Python tool that connects to a running gdb server and visualises dat
 
 ## Installation
 
+Install from pypi
+
+```shell
+pip install gdbplotter
+```
+
 Install from source into a virtual environment:
 
 ```shell
