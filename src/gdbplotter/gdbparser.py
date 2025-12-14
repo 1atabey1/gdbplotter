@@ -1,9 +1,9 @@
-import time
-from typing import Iterable, Optional
 import socket
 import struct
-from collections import deque
 import threading
+import time
+from collections import deque
+from typing import Iterable
 
 
 class MemoryRegion:
@@ -18,14 +18,11 @@ class MemoryRegion:
         return struct.calcsize(self.format_str)
 
     def get_field_count(self):
-        try:
-            return len(struct.unpack(self.format_str, b"\x00" * self.get_byte_count()))
-        except:
-            return 0
+        return len(struct.unpack(self.format_str, b"\x00" * self.get_byte_count()))
 
     def decode(self, payload: bytes):
         return struct.unpack(self.format_str, payload)
-    
+
     def encode(self, data: Iterable):
         return struct.pack(self.format_str, *data)
 
@@ -58,9 +55,7 @@ class GdbParser:
     def __init__(self, regions: list[MemoryRegion] = None, host: str = "localhost", port: int = 50000):
         # Initialize parent without serial port
         self.s = None  # No serial connection
-        self.rxq: dict[str, deque[DebugDataPacket]] = (
-            {}
-        )  # Separate queue for each region
+        self.rxq: dict[str, deque[DebugDataPacket]] = {}  # Separate queue for each region
         self.is_running = False
         self.rx_t: threading.Thread = None
 
@@ -91,9 +86,7 @@ class GdbParser:
 
             return True
         except socket.timeout:
-            print(
-                f"Connection timeout - ensure GDB server is running on port {self.port}"
-            )
+            print(f"Connection timeout - ensure GDB server is running on port {self.port}")
             return False
         except ConnectionRefusedError:
             print(f"Connection refused - GDB server not listening on port {self.port}")
@@ -122,7 +115,7 @@ class GdbParser:
             packet_started = False
 
             while True:
-                data = self.gdb_socket.recv(1)
+                data = self.gdb_socket.recv(1024)
                 if not data:
                     break
                 response += data
@@ -136,11 +129,11 @@ class GdbParser:
                         # Acknowledgment - continue reading
                         continue
                     elif packet_started and char == b"#":
-                        if len(data) >= i+clen:
+                        if len(data) >= i + clen:
                             # Nothing to do, we already have all the data
                             pass
                         else:
-                            response += self.gdb_socket.recv((i+clen) - len(data))
+                            response += self.gdb_socket.recv((i + clen) - len(data))
                         # Send acknowledgment
                         self.gdb_socket.send(b"+")
                         break
@@ -195,9 +188,7 @@ class GdbParser:
                 self.receive()
                 time.sleep(0.001)  # Small delay to prevent excessive polling
 
-        self.rx_t = threading.Thread(
-            target=rx, name="gdb parser rx thread", daemon=True
-        )
+        self.rx_t = threading.Thread(target=rx, name="gdb parser rx thread", daemon=True)
         self.is_running = True
         self.rx_t.start()
 
@@ -223,8 +214,8 @@ class GdbParser:
         if self.gdb_socket:
             try:
                 self.gdb_socket.close()
-            except:
-                pass
+            except Exception as e:
+                print(f"Error reading from GDB: {e}")
             self.gdb_socket = None
 
     def get_last(self, region_name: str = None):

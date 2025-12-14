@@ -1,29 +1,22 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#  "matplotlib>=3.10.7",
-#  "numpy>=2.3.5",
-# ]
-# ///
-import struct
-import tkinter as tk
-from tkinter import ttk, messagebox
-import time
-import threading
-from collections import deque
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-import numpy as np
 import csv
-import struct
-from datetime import datetime
-from tkinter import filedialog
 import json
 import os
-from gdbparser import GdbParser, MemoryRegion
+import struct
+import threading
+import time
+import tkinter as tk
+from collections import deque
+from datetime import datetime
+from tkinter import filedialog, messagebox, ttk
 
-PERIOD_S = 0  # max. 100Hz update rate
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+from gdbplotter.gdbparser import GdbParser, MemoryRegion
+
+PERIOD_S = 0.002  # max. 500Hz update rate
 CONFIG_FILE = "gdbplotter_config.json"
 
 
@@ -84,9 +77,7 @@ class DebugDataUI:
 
                 # Load memory regions
                 if "regions" in config:
-                    self.regions = [
-                        MemoryRegion.from_dict(r) for r in config["regions"]
-                    ]
+                    self.regions = [MemoryRegion.from_dict(r) for r in config["regions"]]
                     self.update_regions_list()  # Update the regions list UI
                     self.rebuild_signal_list()
 
@@ -172,34 +163,24 @@ class DebugDataUI:
         name_frame.pack(fill="x", pady=2)
         ttk.Label(name_frame, text="Name:", width=15).pack(side="left")
         self.new_region_name_var = tk.StringVar()
-        ttk.Entry(name_frame, textvariable=self.new_region_name_var, width=30).pack(
-            side="left", padx=5
-        )
+        ttk.Entry(name_frame, textvariable=self.new_region_name_var, width=30).pack(side="left", padx=5)
 
         addr_frame = ttk.Frame(add_frame)
         addr_frame.pack(fill="x", pady=2)
         ttk.Label(addr_frame, text="Address (hex):", width=15).pack(side="left")
         self.new_region_addr_var = tk.StringVar(value="0x24000478")
-        ttk.Entry(addr_frame, textvariable=self.new_region_addr_var, width=30).pack(
-            side="left", padx=5
-        )
+        ttk.Entry(addr_frame, textvariable=self.new_region_addr_var, width=30).pack(side="left", padx=5)
 
         fmt_frame = ttk.Frame(add_frame)
         fmt_frame.pack(fill="x", pady=2)
         ttk.Label(fmt_frame, text="Format String:", width=15).pack(side="left")
         self.new_region_fmt_var = tk.StringVar(value="<I8f")
-        ttk.Entry(fmt_frame, textvariable=self.new_region_fmt_var, width=30).pack(
-            side="left", padx=5
-        )
-        ttk.Label(
-            fmt_frame, text="e.g., <I8f (uint32 + 8 floats)", font=("Courier", 9)
-        ).pack(side="left", padx=5)
+        ttk.Entry(fmt_frame, textvariable=self.new_region_fmt_var, width=30).pack(side="left", padx=5)
+        ttk.Label(fmt_frame, text="e.g., <I8f (uint32 + 8 floats)", font=("Courier", 9)).pack(side="left", padx=5)
 
         btn_frame = ttk.Frame(add_frame)
         btn_frame.pack(fill="x", pady=10)
-        ttk.Button(btn_frame, text="Add Region", command=self.add_new_region).pack(
-            side="left"
-        )
+        ttk.Button(btn_frame, text="Add Region", command=self.add_new_region).pack(side="left")
 
         list_frame = ttk.LabelFrame(parent, text="Configured Regions", padding=10)
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -208,9 +189,7 @@ class DebugDataUI:
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
         self.regions_list_frame = ttk.Frame(canvas)
 
-        self.regions_list_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        self.regions_list_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
         canvas.create_window((0, 0), window=self.regions_list_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -245,9 +224,7 @@ class DebugDataUI:
 
             # Check for duplicate names
             if any(r.name == name for r in self.regions):
-                messagebox.showerror(
-                    "Duplicate Name", f"Region '{name}' already exists"
-                )
+                messagebox.showerror("Duplicate Name", f"Region '{name}' already exists")
                 return
 
             # Create and add region
@@ -291,16 +268,12 @@ class DebugDataUI:
             widget.destroy()
 
         if not self.regions:
-            ttk.Label(
-                self.regions_list_frame, text="No regions configured", foreground="gray"
-            ).pack(pady=20)
+            ttk.Label(self.regions_list_frame, text="No regions configured", foreground="gray").pack(pady=20)
             return
 
         # Display each region
         for i, region in enumerate(self.regions):
-            region_frame = ttk.Frame(
-                self.regions_list_frame, relief="ridge", borderwidth=2
-            )
+            region_frame = ttk.Frame(self.regions_list_frame, relief="ridge", borderwidth=2)
             region_frame.pack(fill="x", padx=5, pady=5)
 
             # Header with name and remove button
@@ -324,16 +297,11 @@ class DebugDataUI:
             details_frame = ttk.Frame(region_frame)
             details_frame.pack(fill="x", padx=5, pady=5)
 
-            ttk.Label(details_frame, text=f"Address: 0x{region.address:X}").pack(
-                anchor="w"
-            )
-            ttk.Label(details_frame, text=f"Format: {region.format_str}").pack(
-                anchor="w"
-            )
+            ttk.Label(details_frame, text=f"Address: 0x{region.address:X}").pack(anchor="w")
+            ttk.Label(details_frame, text=f"Format: {region.format_str}").pack(anchor="w")
             ttk.Label(
                 details_frame,
-                text=f"Size: {region.get_byte_count()} bytes, "
-                f"{region.get_field_count()} fields",
+                text=f"Size: {region.get_byte_count()} bytes, " f"{region.get_field_count()} fields",
             ).pack(anchor="w")
 
     def rebuild_signal_list(self):
@@ -376,35 +344,25 @@ class DebugDataUI:
         ttk.Label(gdb_control_frame, text="GDB Port:").grid(row=0, column=0, sticky="w")
         self.gdb_port_var = tk.StringVar(value="50000")
         self.gdb_port_var.trace_add("write", lambda *args: self.save_config())
-        ttk.Entry(gdb_control_frame, textvariable=self.gdb_port_var, width=8).grid(
-            row=0, column=1, padx=5
-        )
+        ttk.Entry(gdb_control_frame, textvariable=self.gdb_port_var, width=8).grid(row=0, column=1, padx=5)
 
         ttk.Label(gdb_control_frame, text="GDB Host:").grid(row=1, column=0, sticky="w")
         self.gdb_host_var = tk.StringVar(value="localhost")
         self.gdb_host_var.trace_add("write", lambda *args: self.save_config())
-        ttk.Entry(gdb_control_frame, textvariable=self.gdb_host_var, width=15).grid(
-            row=1, column=1, padx=5
-        )
+        ttk.Entry(gdb_control_frame, textvariable=self.gdb_host_var, width=15).grid(row=1, column=1, padx=5)
 
         # Connection buttons frame
         button_frame = ttk.Frame(conn_frame)
         button_frame.pack(fill="x", pady=(10, 0))
 
-        self.connect_btn = ttk.Button(
-            button_frame, text="Connect", command=self.connect
-        )
+        self.connect_btn = ttk.Button(button_frame, text="Connect", command=self.connect)
         self.connect_btn.pack(side="left", padx=(0, 5))
 
-        self.disconnect_btn = ttk.Button(
-            button_frame, text="Disconnect", command=self.disconnect, state="disabled"
-        )
+        self.disconnect_btn = ttk.Button(button_frame, text="Disconnect", command=self.disconnect, state="disabled")
         self.disconnect_btn.pack(side="left", padx=5)
 
         # Status label
-        self.status_label = ttk.Label(
-            conn_frame, text="Status: Disconnected", foreground="red"
-        )
+        self.status_label = ttk.Label(conn_frame, text="Status: Disconnected", foreground="red")
         self.status_label.pack(pady=(10, 0))
 
         # Data display frame
@@ -413,9 +371,7 @@ class DebugDataUI:
 
         # Create scrollable frame
         self.canvas = tk.Canvas(self.data_frame)
-        scrollbar = ttk.Scrollbar(
-            self.data_frame, orient="vertical", command=self.canvas.yview
-        )
+        scrollbar = ttk.Scrollbar(self.data_frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
 
         self.scrollable_frame.bind(
@@ -453,14 +409,10 @@ class DebugDataUI:
         logging_frame = ttk.Frame(stats_frame)
         logging_frame.pack(side="right")
 
-        self.log_btn = ttk.Button(
-            logging_frame, text="Start Logging", command=self.toggle_logging
-        )
+        self.log_btn = ttk.Button(logging_frame, text="Start Logging", command=self.toggle_logging)
         self.log_btn.pack(side="right", padx=(0, 10))
 
-        self.log_status_label = ttk.Label(
-            logging_frame, text="Not logging", foreground="red"
-        )
+        self.log_status_label = ttk.Label(logging_frame, text="Not logging", foreground="red")
         self.log_status_label.pack(side="right")
 
         self.packet_count = 0
@@ -480,12 +432,8 @@ class DebugDataUI:
             row_frame = ttk.Frame(self.scrollable_frame)
             row_frame.pack(fill="x", pady=2)
 
-            ttk.Label(row_frame, text=f"{i}: {label}", width=25, anchor="w").pack(
-                side="left"
-            )
-            value_label = ttk.Label(
-                row_frame, text="--", width=50, anchor="e", font=("Courier", 10)
-            )
+            ttk.Label(row_frame, text=f"{i}: {label}", width=25, anchor="w").pack(side="left")
+            value_label = ttk.Label(row_frame, text="--", width=50, anchor="e", font=("Courier", 10))
             value_label.pack(side="right")
             self.value_labels.append(value_label)
 
@@ -532,15 +480,9 @@ class DebugDataUI:
         button_frame = ttk.Frame(selection_frame)
         button_frame.pack(side="right", padx=10)
 
-        ttk.Button(button_frame, text="Select All", command=self.select_all_plots).pack(
-            pady=2
-        )
-        ttk.Button(button_frame, text="Clear All", command=self.clear_all_plots).pack(
-            pady=2
-        )
-        ttk.Button(button_frame, text="Clear Data", command=self.clear_plot_data).pack(
-            pady=2
-        )
+        ttk.Button(button_frame, text="Select All", command=self.select_all_plots).pack(pady=2)
+        ttk.Button(button_frame, text="Clear All", command=self.clear_all_plots).pack(pady=2)
+        ttk.Button(button_frame, text="Clear Data", command=self.clear_plot_data).pack(pady=2)
 
         # Plot frame
         plot_frame = ttk.LabelFrame(parent, text="Live Plot", padding=10)
@@ -572,9 +514,7 @@ class DebugDataUI:
         scrollbar = ttk.Scrollbar(config_frame, orient="vertical", command=canvas.yview)
         self.config_scrollable_frame = ttk.Frame(canvas)
 
-        self.config_scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        self.config_scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
         canvas.create_window((0, 0), window=self.config_scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -610,9 +550,7 @@ class DebugDataUI:
         signal_idx = 0
         for region in self.regions:
             # Region header
-            region_header = ttk.LabelFrame(
-                self.config_scrollable_frame, text=f"Region: {region.name}", padding=5
-            )
+            region_header = ttk.LabelFrame(self.config_scrollable_frame, text=f"Region: {region.name}", padding=5)
             region_header.pack(fill="x", pady=10, padx=5)
 
             for i in range(region.get_field_count()):
@@ -621,9 +559,7 @@ class DebugDataUI:
                 row_frame.pack(fill="x", pady=2, padx=5)
 
                 # Signal index label
-                ttk.Label(row_frame, text=f"[{i}]:", width=8, anchor="w").pack(
-                    side="left", padx=5
-                )
+                ttk.Label(row_frame, text=f"[{i}]:", width=8, anchor="w").pack(side="left", padx=5)
 
                 # Entry field
                 default_name = f"{region.name}[{i}]"
@@ -635,9 +571,7 @@ class DebugDataUI:
                 def make_reset_callback(k):
                     return lambda: self.reset_signal_name(k)
 
-                ttk.Button(
-                    row_frame, text="Reset", width=8, command=make_reset_callback(key)
-                ).pack(side="left", padx=2)
+                ttk.Button(row_frame, text="Reset", width=8, command=make_reset_callback(key)).pack(side="left", padx=2)
 
                 # Store reference with a callback to update on focus out
                 def make_update_callback(k, var, default):
@@ -654,15 +588,11 @@ class DebugDataUI:
 
                 entry.bind(
                     "<FocusOut>",
-                    lambda e, k=key, var=entry_var, d=default_name: make_update_callback(
-                        k, var, d
-                    )(),
+                    lambda e, k=key, var=entry_var, d=default_name: make_update_callback(k, var, d)(),
                 )
                 entry.bind(
                     "<Return>",
-                    lambda e, k=key, var=entry_var, d=default_name: make_update_callback(
-                        k, var, d
-                    )(),
+                    lambda e, k=key, var=entry_var, d=default_name: make_update_callback(k, var, d)(),
                 )
 
                 self.signal_entry_widgets.append(entry_var)
@@ -718,8 +648,7 @@ class DebugDataUI:
 
             # Write header row
             header = ["Timestamp", "Relative_Time_s"] + [
-                f"{i}_{self.get_signal_display_name(i).replace(' ', '_')}"
-                for i in range(len(self.measurement_labels))
+                f"{i}_{self.get_signal_display_name(i).replace(' ', '_')}" for i in range(len(self.measurement_labels))
             ]
             self.csv_writer.writerow(header)
 
@@ -728,9 +657,7 @@ class DebugDataUI:
 
             # Update UI
             self.log_btn.config(text="Stop Logging")
-            self.log_status_label.config(
-                text=f"Logging to: {filename.split('/')[-1]}", foreground="green"
-            )
+            self.log_status_label.config(text=f"Logging to: {filename.split('/')[-1]}", foreground="green")
 
             print(f"Started logging to: {filename}")
 
@@ -762,15 +689,11 @@ class DebugDataUI:
         if self.is_logging and self.csv_writer:
             try:
                 current_time = time.time()
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[
-                    :-3
-                ]  # Include milliseconds
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # Include milliseconds
                 relative_time = current_time - self.log_start_time
 
                 # Create row with timestamp, relative time, and all measurement values
-                row = [timestamp, f"{relative_time:.3f}"] + [
-                    f"{value:.6f}" for value in values
-                ]
+                row = [timestamp, f"{relative_time:.3f}"] + [f"{value:.6f}" for value in values]
                 self.csv_writer.writerow(row)
 
                 # Flush to ensure data is written immediately
@@ -814,7 +737,7 @@ class DebugDataUI:
                 if var.get() and len(self.plot_data[i]) > 0:
                     data_array = np.array(self.plot_data[i])
                     display_name = self.get_signal_display_name(i)
-                    line = self.ax.plot(
+                    _ = self.ax.plot(
                         time_array[-len(data_array) :],
                         data_array,
                         color=self.plot_colors[i],
@@ -858,9 +781,7 @@ class DebugDataUI:
             self.connect_btn.config(state="disabled")
             self.disconnect_btn.config(state="normal")
 
-            self.status_label.config(
-                text=f"Status: Connected to {connection_info}", foreground="green"
-            )
+            self.status_label.config(text=f"Status: Connected to {connection_info}", foreground="green")
 
         except Exception as e:
             messagebox.showerror("Connection Error", f"Failed to connect: {str(e)}")
@@ -927,9 +848,7 @@ class DebugDataUI:
 
                             # Calculate update rate
                             if current_time - self.last_update_time >= 1.0:
-                                rate = self.packet_count / (
-                                    current_time - self.last_update_time
-                                )
+                                rate = self.packet_count / (current_time - self.last_update_time)
                                 self.root.after(0, self.update_stats, rate, self.packet_count)
                                 self.last_update_time = current_time
                                 self.packet_count = 0
@@ -946,10 +865,7 @@ class DebugDataUI:
                 # Format different types of measurements appropriately
                 if "Temp" in self.measurement_labels[i]:
                     formatted_value = f"{value:.1f} °C"
-                elif (
-                    "Voltage" in self.measurement_labels[i]
-                    or "Sens" in self.measurement_labels[i]
-                ):
+                elif "Voltage" in self.measurement_labels[i] or "Sens" in self.measurement_labels[i]:
                     formatted_value = f"{value:.5f} V"
                 elif "Current" in self.measurement_labels[i]:
                     formatted_value = f"{value:.5f} A"
@@ -977,10 +893,13 @@ class DebugDataUI:
                 self.disconnect()
             except tk.TclError:
                 pass
-            except:
-                pass
+            except Exception as e:
+                print(f"Error while closing: {e}")
 
 
-if __name__ == "__main__":
+def main():
     app = DebugDataUI()
     app.run()
+
+if __name__ == "__main__":
+    main()
