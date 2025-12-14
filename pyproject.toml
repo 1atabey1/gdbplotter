@@ -1,6 +1,6 @@
 [project]
 name = "gdbplotter"
-version = "0.1.1"
+version = "0.1.2"
 description = "Simple UI for printing GDB memory values"
 readme = "README.md"
 license ={ file = "LICENSE"}
@@ -18,3 +18,7 @@ dev = [
 
 [project.gui-scripts]
 gdbplotter = "gdbplotter.plotter_ui:main"
+
+[project.urls]
+homepage = "https://github.com/1atabey1/gdbplotter"
+repository = "https://github.com/1atabey1/gdbplotter"
