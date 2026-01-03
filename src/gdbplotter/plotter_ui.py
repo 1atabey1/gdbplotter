@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from gdbplotter.armtraceparser import TraceParser
 from gdbplotter.gdbparser import GdbParser, MemoryRegion
 
 PERIOD_S = 0.002  # max. 500Hz update rate
@@ -21,7 +22,7 @@ CONFIG_FILE = "gdbplotter_config.json"
 
 
 class DebugDataUI:
-    def __init__(self):
+    def __init__(self, use_trace: bool = False):
         self.root = tk.Tk()
         self.root.title("Debug Data Monitor - Multi-Region")
         self.root.geometry("900x750")
@@ -62,6 +63,8 @@ class DebugDataUI:
 
         self.packet_count = 0
         self.last_update_time = time.time()
+
+        self.use_trace = use_trace
 
         self.setup_ui()
 
@@ -764,8 +767,12 @@ class DebugDataUI:
             # GDB connection
             gdb_host = self.gdb_host_var.get()
             gdb_port = int(self.gdb_port_var.get())
+            args = dict(regions=self.regions, port=gdb_port, host=gdb_host)
+            if self.use_trace:
+                self.parser = TraceParser(**args)
+            else:
+                self.parser = GdbParser(**args)
 
-            self.parser = GdbParser(regions=self.regions, port=gdb_port, host=gdb_host)
             connection_info = f"GDB {gdb_host}:{gdb_port}"
 
             # Start the parser
@@ -897,8 +904,8 @@ class DebugDataUI:
                 print(f"Error while closing: {e}")
 
 
-def main():
-    app = DebugDataUI()
+def main(use_trace: bool):
+    app = DebugDataUI(use_trace)
     app.run()
 
 
