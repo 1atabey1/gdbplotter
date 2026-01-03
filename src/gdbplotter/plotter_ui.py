@@ -14,8 +14,8 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from gdbplotter.gdbparser import GdbParser, MemoryRegion
 from gdbplotter.armtraceparser import TraceParser
+from gdbplotter.gdbparser import GdbParser, MemoryRegion
 
 PERIOD_S = 0.002  # max. 500Hz update rate
 CONFIG_FILE = "gdbplotter_config.json"

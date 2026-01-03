@@ -1,6 +1,6 @@
-
 import struct
 from typing import Iterable
+
 
 class MemoryRegion:
     """Represents a memory region with address, format string, and name"""

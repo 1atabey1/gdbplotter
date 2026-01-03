@@ -1,9 +1,7 @@
 import socket
-import struct
 import threading
 import time
 from collections import deque
-from typing import Iterable
 
 from gdbplotter.datastructures import DebugDataPacket, MemoryRegion
 
