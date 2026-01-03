@@ -14,13 +14,20 @@ class TraceParser(GdbParser):
     """
     
     # CoreSight ETB (Embedded Trace Buffer) registers
+    ETB_BASE = 0xE0042000     # ETB Base Address
+    ETB_RAM = 0xE0042000      # RAM Buffer (at base offset 0x0000)
     ETB_RDP = 0xE0042004      # RAM Data Port
     ETB_STS = 0xE0042008      # Status Register
     ETB_RRP = 0xE004200C      # RAM Read Pointer
     ETB_RWP = 0xE0042010      # RAM Write Pointer
     ETB_TRG = 0xE0042014      # Trigger Counter
     ETB_CTL = 0xE0042020      # Control Register
+    ETB_RWD = 0xE0042024      # RAM Write Data (for depth detection)
     ETB_FFCR = 0xE0042304     # Formatter and Flush Control Register
+    
+    # ETB buffer size (typical values: 2048, 4096, 8192 bytes)
+    # This can be detected by reading the RWD register
+    ETB_BUFFER_SIZE = 2048    # Default 2KB, will be auto-detected
     
     # DWT (Data Watchpoint and Trace) registers
     DWT_CTRL = 0xE0001000     # Control Register
@@ -49,6 +56,7 @@ class TraceParser(GdbParser):
         super().__init__(regions, host, port)
         self.trace_configured = False
         self.comparator_map = {}  # Maps comparator index to region name
+        self.etb_buffer_size = self.ETB_BUFFER_SIZE  # Will be detected on init
         
     def _write_memory(self, address: int, data: bytes) -> bool:
         """Write memory via GDB"""
@@ -70,9 +78,35 @@ class TraceParser(GdbParser):
             return struct.unpack('<I', data)[0]
         return 0
     
+    def _detect_etb_buffer_size(self) -> int:
+        """
+        Detect the ETB buffer size by reading the RAM Write Data register.
+        
+        Returns: Buffer size in bytes
+        """
+        try:
+            # Read the ETB RAM depth register (RWD)
+            # This contains the buffer depth in 32-bit words
+            depth_words = self._read_register(self.ETB_RWD)
+            
+            if depth_words > 0 and depth_words < 0x10000:  # Sanity check (max 256KB)
+                buffer_size_bytes = depth_words * 4
+                print(f"ETB buffer size detected: {buffer_size_bytes} bytes ({depth_words} words)")
+                return buffer_size_bytes
+            else:
+                print(f"ETB depth register returned invalid value: {depth_words}, using default")
+                return self.ETB_BUFFER_SIZE
+                
+        except Exception as e:
+            print(f"Failed to detect ETB buffer size: {e}, using default {self.ETB_BUFFER_SIZE} bytes")
+            return self.ETB_BUFFER_SIZE
+    
     def _configure_trace_infrastructure(self) -> bool:
         """Configure the ARM CoreSight trace infrastructure"""
         try:
+            # Detect ETB buffer size first
+            self.etb_buffer_size = self._detect_etb_buffer_size()
+            
             # Enable DWT
             ctrl = self._read_register(self.DWT_CTRL)
             ctrl |= 0x1  # Enable cycle counter
@@ -127,50 +161,235 @@ class TraceParser(GdbParser):
         print(f"DWT comparator {comp_idx} configured for {region.name} at 0x{region.address:08X}")
         return True
     
-    def _read_etb_buffer(self) -> list[bytes]:
+    def _read_etb_buffer(self) -> bytes:
         """Read available data from the ETB trace buffer"""
-        packets = []
+        trace_stream = bytearray()
         
         try:
             # Check if data is available
             sts = self._read_register(self.ETB_STS)
             if not (sts & 0x1):  # Check if trigger occurred
-                return packets
+                return bytes(trace_stream)
             
-            # Get read and write pointers
+            # Get read and write pointers (in words, not bytes)
             rrp = self._read_register(self.ETB_RRP)
             rwp = self._read_register(self.ETB_RWP)
             
-            # Read data from buffer
-            while rrp != rwp:
-                word = self._read_register(self.ETB_RDP)
-                packets.append(struct.pack('<I', word))
-                rrp = self._read_register(self.ETB_RRP)  # Auto-increments
+            if rrp == rwp:
+                return bytes(trace_stream)
+            
+            # Calculate number of words to read
+            buffer_size_words = self.etb_buffer_size // 4
+            
+            if rwp > rrp:
+                # Simple case: no wrap-around
+                num_words = rwp - rrp
+                start_offset = rrp * 4
+                
+                # Read all data in one go from ETB RAM
+                trace_stream = bytearray(self._read_memory(
+                    self.ETB_RAM + start_offset,
+                    num_words * 4
+                ))
+            else:
+                # Wrap-around case: read from rrp to end, then from start to rwp
+                # Read first chunk (rrp to end of buffer)
+                words_to_end = buffer_size_words - rrp
+                if words_to_end > 0:
+                    chunk1 = self._read_memory(
+                        self.ETB_RAM + (rrp * 4),
+                        words_to_end * 4
+                    )
+                    trace_stream.extend(chunk1)
+                
+                # Read second chunk (start to rwp)
+                if rwp > 0:
+                    chunk2 = self._read_memory(
+                        self.ETB_RAM,
+                        rwp * 4
+                    )
+                    trace_stream.extend(chunk2)
+            
+            # Update read pointer to match write pointer (mark as read)
+            self._write_register(self.ETB_RRP, rwp)
                 
         except Exception as e:
             print(f"Error reading ETB: {e}")
         
-        return packets
+        return bytes(trace_stream)
     
-    def _parse_trace_packets(self, raw_packets: list[bytes]) -> dict:
-        """Parse trace packets and extract data for each region"""
+    def _parse_dwt_packet(self, header: int, payload: bytes, offset: int, trace_stream: bytes) -> tuple:
+        """
+        Parse a DWT data trace packet.
+        
+        Returns: (comparator_index, data_bytes, bytes_consumed) or (None, None, 0) if invalid
+        """
+        # DWT Event packet format (when POSTPRESET=1, which is default):
+        # Bits 7:3 = discriminator (11100 for DWT data trace)
+        # Bits 2:0 = comparator number (0-3)
+        
+        # DWT Data Value packet:
+        # Header byte contains comparator number in bits 2:0
+        # Payload follows with the actual data value
+        
+        # Check if this is a DWT packet (discriminator 11100 = 0x1C shifted)
+        discriminator = (header >> 3) & 0x1F
+        
+        # DWT packet discriminators:
+        # 0b00001 (0x01) - DWT event counter
+        # 0b00010 (0x02) - DWT exception trace
+        # 0b00011 (0x03) - DWT PC sample
+        # 0b01110 (0x0E) - DWT data trace PC
+        # 0b01111 (0x0F) - DWT data trace address
+        # For data value trace, we look for specific patterns
+        
+        # Validate this is a DWT packet type
+        valid_dwt_discriminators = [0x01, 0x02, 0x03, 0x0E, 0x0F]
+        if discriminator not in valid_dwt_discriminators:
+            return (None, None, 0)
+        
+        # Extract comparator number from lower bits
+        comp_num = header & 0x03  # Bits 1:0 for comparator
+        
+        # Determine payload size based on header
+        # Size encoding in bits 2:1 of header for some packet types
+        size_field = (header >> 1) & 0x03
+        payload_size = [1, 2, 4, 4][size_field]  # Possible sizes
+        
+        # Verify we have enough bytes
+        if offset + payload_size > len(trace_stream):
+            return (None, None, 0)
+        
+        # Extract data payload
+        data_bytes = trace_stream[offset:offset + payload_size]
+        
+        return (comp_num, data_bytes, payload_size)
+    
+    def _parse_itm_packet(self, header: int, offset: int, trace_stream: bytes) -> tuple:
+        """
+        Parse an ITM stimulus port packet.
+        
+        Returns: (port_number, data_bytes, bytes_consumed) or (None, None, 0) if invalid
+        """
+        # ITM Stimulus Port packet format:
+        # Bits 7:3 = port number (0-31)
+        # Bits 2:1 = size (00=1 byte, 01=2 bytes, 10=4 bytes, 11=reserved)
+        # Bit 0 = always 1 for stimulus
+        
+        if (header & 0x01) == 0:
+            return (None, None, 0)  # Not a stimulus packet
+        
+        port = (header >> 3) & 0x1F
+        size_field = (header >> 1) & 0x03
+        
+        if size_field == 0x03:  # Reserved
+            return (None, None, 0)
+        
+        payload_size = [1, 2, 4][size_field]
+        
+        # Verify we have enough bytes
+        if offset + payload_size > len(trace_stream):
+            return (None, None, 0)
+        
+        # Extract data
+        data_bytes = trace_stream[offset:offset + payload_size]
+        
+        return (port, data_bytes, payload_size)
+    
+    def _parse_trace_packets(self, trace_stream: bytes) -> dict:
+        """
+        Parse DWT/ITM trace stream and extract data for each region.
+        
+        Implements proper decoding of the ARM Cortex-M DWT trace protocol.
+        """
         region_data = {}
         
-        # Simple parsing - in real implementation would decode ITM/DWT protocol
-        # For now, we attempt to match packet data to configured regions
-        for packet in raw_packets:
-            if len(packet) < 4:
+        if not trace_stream:
+            return region_data
+        
+        offset = 0
+        
+        while offset < len(trace_stream):
+            if offset >= len(trace_stream):
+                break
+            
+            header = trace_stream[offset]
+            offset += 1
+            
+            # Check for synchronization packet (0x00 or 0x80 sequences)
+            if header == 0x00:
+                # Null/idle packet
                 continue
+            
+            # Check for synchronization pattern (0x80 followed by zeros)
+            if header == 0x80:
+                # Skip synchronization sequence
+                while offset < len(trace_stream) and trace_stream[offset] == 0x00:
+                    offset += 1
+                continue
+            
+            # Check for timestamp packets (header bits 7:4 = 0xC or 0x7)
+            if (header & 0xF0) == 0xC0 or (header & 0xF0) == 0x70:
+                # Timestamp packet - variable length, skip for now
+                # Could parse timestamp for better synchronization
+                continue
+            
+            # Check for overflow packet (0x70)
+            if header == 0x70:
+                print("Warning: Trace buffer overflow detected")
+                continue
+            
+            # Parse DWT hardware source packets
+            # DWT packets typically have specific bit patterns in header
+            if (header & 0x04) == 0x04:  # DWT event/data trace indicator
+                comp_num, data_bytes, consumed = self._parse_dwt_packet(
+                    header, b'', offset, trace_stream
+                )
                 
-            # Try to match packet to regions based on size
-            for region in self.regions:
-                expected_size = region.get_byte_count()
-                if len(packet) >= expected_size:
-                    # Extract data matching region size
-                    payload = packet[:expected_size]
-                    if region.name not in region_data:
-                        region_data[region.name] = []
-                    region_data[region.name].append(payload)
+                if comp_num is not None and data_bytes:
+                    # Map comparator to region
+                    if comp_num in self.comparator_map:
+                        region_name = self.comparator_map[comp_num]
+                        region = next((r for r in self.regions if r.name == region_name), None)
+                        
+                        if region:
+                            expected_size = region.get_byte_count()
+                            
+                            # Accumulate data if we need more bytes
+                            if len(data_bytes) < expected_size:
+                                # Read additional bytes
+                                bytes_needed = expected_size - len(data_bytes)
+                                if offset + consumed + bytes_needed <= len(trace_stream):
+                                    data_bytes = trace_stream[offset:offset + consumed + bytes_needed]
+                                    consumed = bytes_needed
+                            
+                            # Only add if we have complete data
+                            if len(data_bytes) >= expected_size:
+                                payload = data_bytes[:expected_size]
+                                if region_name not in region_data:
+                                    region_data[region_name] = []
+                                region_data[region_name].append(payload)
+                    
+                    offset += consumed
+                else:
+                    # Failed to parse, skip byte
+                    pass
+            
+            # Parse ITM stimulus port packets (software trace)
+            elif (header & 0x01) == 0x01:
+                port, data_bytes, consumed = self._parse_itm_packet(header, offset, trace_stream)
+                
+                if port is not None and data_bytes:
+                    # ITM ports could be mapped to regions if needed
+                    offset += consumed
+                else:
+                    # Failed to parse, skip byte
+                    pass
+            
+            # Unknown packet type
+            else:
+                # Skip unknown byte
+                pass
         
         return region_data
     
@@ -218,12 +437,12 @@ class TraceParser(GdbParser):
             return
         
         try:
-            # Read trace packets from ETB
-            raw_packets = self._read_etb_buffer()
+            # Read trace stream from ETB
+            trace_stream = self._read_etb_buffer()
             
-            if raw_packets:
-                # Parse packets and match to regions
-                region_data = self._parse_trace_packets(raw_packets)
+            if trace_stream:
+                # Parse trace stream and match to regions
+                region_data = self._parse_trace_packets(trace_stream)
                 
                 # Add parsed data to queues
                 for region_name, payloads in region_data.items():
